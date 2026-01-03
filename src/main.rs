@@ -1,23 +1,32 @@
 use std::env;
-use std::fs;
 use std::io::{self, Error, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 fn is_executable(path: &Path) -> bool {
-    match fs::metadata(path) {
-        Ok(metadata) => {
-            let mode = metadata.permissions().mode();
-            metadata.is_file() && (mode & 0o111 != 0)
-        }
-        Err(_) => false,
-    }
+    path.is_file()
+        && path
+            .metadata()
+            .map(|m| m.permissions().mode() & 0o111 != 0)
+            .unwrap_or(false)
 }
 
 fn execute_command(path: &Path, args: &[&str]) -> Result<Output, Error> {
-    let output = Command::new(path).args(args).output();
-    output
+    Command::new(path).args(args).output()
+}
+
+fn find_executable(command: &str) -> io::Result<(bool, PathBuf)> {
+    let path_str = env::var("PATH").map_err(|e| io::Error::new(io::ErrorKind::NotFound, e))?;
+
+    for dir in path_str.split(':') {
+        let candidate = PathBuf::from(dir).join(command);
+        if is_executable(&candidate) {
+            return Ok((true, candidate));
+        }
+    }
+
+    Ok((false, PathBuf::new()))
 }
 
 fn main() {
@@ -111,23 +120,11 @@ fn main() {
                         println!("{} is a shell builtin", command);
                     } else {
                         // check for executable rights, print command is at <path>
-                        match env::var("PATH") {
-                            Ok(path_str) => {
-                                let mut command_found = false;
-                                let path_dirs = path_str.split(":");
-                                for dir in path_dirs {
-                                    let candidate = PathBuf::from(dir).join(command);
-                                    if is_executable(&candidate) {
-                                        command_found = true;
-                                        println!("{} is {}", command, candidate.display());
-                                        break;
-                                    }
-                                }
-                                if !command_found {
-                                    println!("{}: not found", command);
-                                }
-                            }
-                            Err(error) => eprintln!("PATH not set: {}", error),
+                        let (found, path) = find_executable(&command).unwrap();
+                        if found {
+                            println!("{} is {}", command, path.display());
+                        } else {
+                            eprintln!("{}: not found", command);
                         }
                     }
                 }
