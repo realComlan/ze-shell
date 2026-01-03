@@ -1,18 +1,23 @@
-#[allow(unused_imports)]
-use std::io::{self, Read, Write};
 use std::env;
 use std::fs;
+use std::io::{self, Error, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
+use std::process::{Command, Output};
 
 fn is_executable(path: &Path) -> bool {
     match fs::metadata(path) {
         Ok(metadata) => {
             let mode = metadata.permissions().mode();
             metadata.is_file() && (mode & 0o111 != 0)
-        },
+        }
         Err(_) => false,
     }
+}
+
+fn execute_command(path: &Path, args: &[&str]) -> Result<Output, Error> {
+    let output = Command::new(path).args(args).output();
+    output
 }
 
 fn main() {
@@ -25,6 +30,7 @@ fn main() {
         io::stdin().read_line(&mut user_input).unwrap();
 
         match user_input
+            .trim()
             .split_whitespace()
             .collect::<Vec<&str>>()
             .as_slice()
@@ -117,11 +123,11 @@ fn main() {
                                         break;
                                     }
                                 }
-                                if ! command_found {
+                                if !command_found {
                                     println!("{}: not found", command);
                                 }
-                            },
-                            Err(error) => eprintln!("PATH not set: {}", error), 
+                            }
+                            Err(error) => eprintln!("PATH not set: {}", error),
                         }
                     }
                 }
@@ -129,11 +135,14 @@ fn main() {
             ["exit", ..] => {
                 return;
             }
-            _ => {
-                // print command not found anyway
-                eprintln!("{}: command not found", user_input.trim());
-                io::stdout().flush().unwrap();
+            [command, args @ ..] => {
+                let output = execute_command(Path::new(&command), &args);
+                match output {
+                    Ok(output) => println!("{}", String::from_utf8_lossy(&output.stdout)),
+                    Err(err) => eprintln!("{}", err),
+                }
             }
+            _ => print!(""),
         }
     }
 }
