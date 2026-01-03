@@ -1,5 +1,19 @@
 #[allow(unused_imports)]
 use std::io::{self, Read, Write};
+use std::env;
+use std::fs;
+use std::os::unix::fs::PermissionsExt;
+use std::path::{Path, PathBuf};
+
+fn is_executable(path: &Path) -> bool {
+    match fs::metadata(path) {
+        Ok(metadata) => {
+            let mode = metadata.permissions().mode();
+            metadata.is_file() && (mode & 0o111 != 0)
+        },
+        Err(_) => false,
+    }
+}
 
 fn main() {
     loop {
@@ -90,7 +104,25 @@ fn main() {
                     if builtin_commands.contains(command) {
                         println!("{} is a shell builtin", command);
                     } else {
-                        eprintln!("{}: not found", command);
+                        // check for executable rights, print command is at <path>
+                        match env::var("PATH") {
+                            Ok(path_str) => {
+                                let mut command_found = false;
+                                let path_dirs = path_str.split(":");
+                                for dir in path_dirs {
+                                    let candidate = PathBuf::from(dir).join(command);
+                                    if is_executable(&candidate) {
+                                        command_found = true;
+                                        println!("{} is {}", command, candidate.display());
+                                        break;
+                                    }
+                                }
+                                if ! command_found {
+                                    println!("{}: not found", command);
+                                }
+                            },
+                            Err(error) => eprintln!("PATH not set: {}", error), 
+                        }
                     }
                 }
             }
